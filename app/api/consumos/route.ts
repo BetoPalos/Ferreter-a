@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readSheet } from "@/lib/googleSheets";
 
 const SPREADSHEET_ID =
-  "1dAgy7mmr7IENjc2qm3wmDn2v_7czT7JkmS4iwyYFSzk";
+  "1dAgy7nmr7IENjc2qm3wmDn2v_7czT7JkmS4iwyYFSzk";
 
 export const dynamic = "force-dynamic";
 
