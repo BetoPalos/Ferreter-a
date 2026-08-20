@@ -27,16 +27,30 @@ class VercelOidcSupplier {
 async function getGoogleAccessToken(): Promise<string> {
   const externalClient = new IdentityPoolClient({
     audience: AUDIENCE,
-    subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
-    token_url: "https://sts.googleapis.com/v1/token",
-    subject_token_supplier: new VercelOidcSupplier(),
-    service_account_impersonation_url: IMPERSONATION_URL,
+
+    subject_token_type:
+      "urn:ietf:params:oauth:token-type:jwt",
+
+    token_url:
+      "https://sts.googleapis.com/v1/token",
+
+    subject_token_supplier:
+      new VercelOidcSupplier(),
+
+    service_account_impersonation_url:
+      IMPERSONATION_URL,
+
+    scopes: [
+      "https://www.googleapis.com/auth/spreadsheets.readonly",
+    ],
   });
 
   const result = await externalClient.getAccessToken();
 
   if (!result.token) {
-    throw new Error("No se pudo obtener un access token de Google Cloud.");
+    throw new Error(
+      "No se pudo obtener un access token de Google Cloud."
+    );
   }
 
   return result.token;
@@ -63,10 +77,11 @@ export async function readSheet(
 ): Promise<unknown[][]> {
   const sheets = await getGoogleSheetsClient();
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range,
-  });
+  const response =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+    });
 
   return response.data.values ?? [];
 }
