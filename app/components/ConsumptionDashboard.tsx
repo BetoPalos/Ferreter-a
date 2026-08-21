@@ -1,6 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 type Row = {
   fecha: string;
@@ -15,6 +19,71 @@ type Row = {
 };
 
 type TimeGranularity = "auto" | "day" | "month";
+type ApiResponse = {
+  ok: boolean;
+  updatedAt?: string;
+
+  filters?: {
+    from: string;
+    to: string;
+    previousFrom: string;
+    previousTo: string;
+  };
+
+  options?: {
+    areas: string[];
+    vendors: string[];
+    clients: string[];
+    materials: string[];
+  };
+
+  summary?: {
+    current: {
+      spend: number;
+      units: number;
+      events: number;
+      average: number;
+    };
+    previous: {
+      spend: number;
+      units: number;
+      events: number;
+      average: number;
+    };
+    change: {
+      spend: number;
+      units: number;
+      events: number;
+      average: number;
+    };
+  };
+
+  spendByArea?: {
+    area: string;
+    value: number;
+  }[];
+
+  topMaterials?: {
+    material: string;
+    value: number;
+  }[];
+
+  trend?: {
+    granularity: "day" | "month";
+    keys: string[];
+    series: {
+      area: string;
+      values: {
+        key: string;
+        value: number;
+      }[];
+    }[];
+  };
+
+  detail?: Row[];
+  detailCount?: number;
+  error?: string;
+};
 
 const demoData: Row[] = [
   {
@@ -200,10 +269,115 @@ export default function ConsumptionDashboard() {
 
   const [showDetail, setShowDetail] = useState(false);
 
-  const allAreas = unique(demoData.map((d) => d.area));
-  const allVendors = unique(demoData.map((d) => d.vendedor));
-  const allClients = unique(demoData.map((d) => d.cliente));
-  const allMaterials = unique(demoData.map((d) => d.descripcion));
+  const [apiData, setApiData] =
+    useState<ApiResponse | null>(null);
+
+  const [loading, setLoading] = useState(false);
+
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadConsumptionData() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const params = new URLSearchParams();
+
+        params.set("from", dateFrom);
+        params.set("to", dateTo);
+
+        if (areas.length > 0) {
+          params.set("areas", areas.join(","));
+        }
+
+        if (vendors.length > 0) {
+          params.set("vendors", vendors.join(","));
+        }
+
+        if (clients.length > 0) {
+          params.set("clients", clients.join(","));
+        }
+
+        if (materials.length > 0) {
+          params.set("materials", materials.join(","));
+        }
+
+        if (granularity !== "auto") {
+          params.set("granularity", granularity);
+        }
+
+        params.set("detailLimit", "250");
+
+        const response = await fetch(
+          `/api/consumos?${params.toString()}`,
+          {
+            signal: controller.signal,
+            cache: "no-store",
+          },
+        );
+
+        const result =
+          (await response.json()) as ApiResponse;
+
+        if (!response.ok || !result.ok) {
+          throw new Error(
+            result.error ||
+              "No fue posible cargar los consumos.",
+          );
+        }
+
+        setApiData(result);
+      } catch (err) {
+        if (
+          err instanceof DOMException &&
+          err.name === "AbortError"
+        ) {
+          return;
+        }
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Error desconocido",
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadConsumptionData();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    dateFrom,
+    dateTo,
+    areas,
+    vendors,
+    clients,
+    materials,
+    granularity,
+  ]);
+
+  const allAreas =
+    apiData?.options?.areas ??
+    unique(demoData.map((d) => d.area));
+
+  const allVendors =
+    apiData?.options?.vendors ??
+    unique(demoData.map((d) => d.vendedor));
+
+  const allClients =
+    apiData?.options?.clients ??
+    unique(demoData.map((d) => d.cliente));
+
+  const allMaterials =
+    apiData?.options?.materials ??
+    unique(demoData.map((d) => d.descripcion));
 
   const previousPeriod = useMemo(() => {
     const start = new Date(`${dateFrom}T00:00:00`);
@@ -229,164 +403,58 @@ export default function ConsumptionDashboard() {
     };
   }, [dateFrom, dateTo]);
 
-  const filtered = useMemo(() => {
-    return demoData.filter((d) => {
-      return (
-        d.fecha >= dateFrom &&
-        d.fecha <= dateTo &&
-        (areas.length === 0 || areas.includes(d.area)) &&
-        (vendors.length === 0 ||
-          vendors.includes(d.vendedor)) &&
-        (clients.length === 0 ||
-          clients.includes(d.cliente)) &&
-        (materials.length === 0 ||
-          materials.includes(d.descripcion))
-      );
-    });
-  }, [dateFrom, dateTo, areas, vendors, clients, materials]);
+const filtered =
+  apiData?.detail ?? [];
 
-  const previous = useMemo(() => {
-    return demoData.filter((d) => {
-      return (
-        d.fecha >= previousPeriod.from &&
-        d.fecha <= previousPeriod.to &&
-        (areas.length === 0 || areas.includes(d.area)) &&
-        (vendors.length === 0 ||
-          vendors.includes(d.vendedor)) &&
-        (clients.length === 0 ||
-          clients.includes(d.cliente)) &&
-        (materials.length === 0 ||
-          materials.includes(d.descripcion))
-      );
-    });
-  }, [
-    previousPeriod,
-    areas,
-    vendors,
-    clients,
-    materials,
-  ]);
+const currentSpend =
+  apiData?.summary?.current.spend ?? 0;
 
-  const currentSpend = filtered.reduce(
-    (sum, d) => sum + d.total,
-    0,
-  );
+const previousSpend =
+  apiData?.summary?.previous.spend ?? 0;
 
-  const previousSpend = previous.reduce(
-    (sum, d) => sum + d.total,
-    0,
-  );
+const currentUnits =
+  apiData?.summary?.current.units ?? 0;
 
-  const currentUnits = filtered.reduce(
-    (sum, d) => sum + d.cantidad,
-    0,
-  );
+const previousUnits =
+  apiData?.summary?.previous.units ?? 0;
 
-  const previousUnits = previous.reduce(
-    (sum, d) => sum + d.cantidad,
-    0,
-  );
+const currentEvents =
+  apiData?.summary?.current.events ?? 0;
 
-  const currentEvents = new Set(
-    filtered.map((d) => d.evento),
-  ).size;
+const previousEvents =
+  apiData?.summary?.previous.events ?? 0;
 
-  const previousEvents = new Set(
-    previous.map((d) => d.evento),
-  ).size;
+const currentAverage =
+  apiData?.summary?.current.average ?? 0;
 
-  const currentAverage =
-    currentEvents > 0
-      ? currentSpend / currentEvents
-      : 0;
+const previousAverage =
+  apiData?.summary?.previous.average ?? 0;
 
-  const previousAverage =
-    previousEvents > 0
-      ? previousSpend / previousEvents
-      : 0;
+const spendByArea =
+  apiData?.spendByArea ?? [];
 
-  const spendByArea = allAreas
-    .map((area) => ({
-      area,
-      value: filtered
-        .filter((d) => d.area === area)
-        .reduce((sum, d) => sum + d.total, 0),
-    }))
-    .filter((d) => d.value !== 0)
-    .sort((a, b) => b.value - a.value);
+const topMaterials =
+  apiData?.topMaterials ?? [];
 
-  const topMaterials = allMaterials
-    .map((material) => ({
-      material,
-      value: filtered
-        .filter((d) => d.descripcion === material)
-        .reduce((sum, d) => sum + d.total, 0),
-    }))
-    .filter((d) => d.value !== 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6);
+const maxAreaSpend = Math.max(
+  1,
+  ...spendByArea.map((d) => Math.abs(d.value)),
+);
+  
 
-  const maxAreaSpend = Math.max(
-    1,
-    ...spendByArea.map((d) => Math.abs(d.value)),
-  );
+const effectiveGranularity =
+  apiData?.trend?.granularity ??
+  (granularity === "month"
+    ? "month"
+    : "day");
 
-  const rangeDays = useMemo(() => {
-    const from = new Date(`${dateFrom}T00:00:00`);
-    const to = new Date(`${dateTo}T00:00:00`);
+const trendData =
+  apiData?.trend ?? {
+    granularity: effectiveGranularity,
+    keys: [],
+    series: [],
+  };
 
-    return (
-      Math.round(
-        (to.getTime() - from.getTime()) / 86400000,
-      ) + 1
-    );
-  }, [dateFrom, dateTo]);
-
-  const effectiveGranularity =
-    granularity === "auto"
-      ? rangeDays > 62
-        ? "month"
-        : "day"
-      : granularity;
-
-  const trendData = useMemo(() => {
-    const keyForDate = (value: string) =>
-      effectiveGranularity === "month"
-        ? value.slice(0, 7)
-        : value;
-
-    const keys = unique(
-      filtered.map((d) => keyForDate(d.fecha)),
-    ).sort();
-
-    const areaList =
-      areas.length > 0 ? areas : allAreas;
-
-    return {
-      keys,
-      series: areaList.map((area) => ({
-        area,
-        values: keys.map((key) => ({
-          key,
-          value: filtered
-            .filter(
-              (d) =>
-                d.area === area &&
-                keyForDate(d.fecha) === key,
-            )
-            .reduce(
-              (sum, d) => sum + d.total,
-              0,
-            ),
-        })),
-      })),
-    };
-  }, [
-    filtered,
-    areas,
-    allAreas,
-    effectiveGranularity,
-  ]);
 
   return (
     <section>
